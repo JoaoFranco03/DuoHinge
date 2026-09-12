@@ -1,0 +1,33 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+.derived-data-log-*
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Editors
+*.swp
+
+# Local signing credentials and exports
+*.p12
+*.p8
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+*.xcarchive/
+*.app/
+*.dSYM/
+.env
+.env.*
+!.env.example
+*.log
