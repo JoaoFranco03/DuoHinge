@@ -3,6 +3,13 @@ import Foundation
 @main
 enum PolicyChecks {
     static func main() {
+        var idle = HingeIdlePolicy()
+        precondition(!idle.isIdle(angle: 60, at: 0))
+        precondition(!idle.isIdle(angle: 60, at: 0.9))
+        precondition(idle.isIdle(angle: 60, at: 1))
+        precondition(!idle.isIdle(angle: 61, at: 1.1))
+        precondition(!idle.isIdle(angle: 61, at: 2))
+        precondition(idle.isIdle(angle: 61, at: 2.2))
         var motion = HingeMotion()
         precondition(motion.value(at: 0) == nil)
         motion.receive(angle: 80, at: 1)
@@ -17,12 +24,12 @@ enum PolicyChecks {
         motion.receive(angle: 75, at: 1.21)
         // Reversals interpolate through their real reports without overshooting.
         let reversal = motion.value(at: 1.36)!
-        precondition((70...75).contains(reversal))
+        precondition((70...80).contains(reversal))
         // Duplicate/out-of-order deliveries cannot alter the retained history.
         motion.receive(angle: 20, at: 1.1)
-        precondition(motion.value(at: 1.5) == 75)
+        precondition(abs(motion.value(at: 1.5)! - 75) < 0.5)
         motion.receive(angle: .nan, at: 2)
-        precondition(motion.value(at: 2) == 75)
+        precondition(abs(motion.value(at: 2)! - 75) < 0.01)
         motion.reset()
         precondition(motion.value(at: 3) == nil)
         // Compare the same 10 Hz movement at 60 Hz and 120 Hz presentation.
@@ -55,7 +62,25 @@ enum PolicyChecks {
             previousFrame = currentFrame
         }
         precondition(largestFrameDelta < 2)
-        print("Interpolation, reversal, stale-data, reset, and frame-rate checks passed.")
+        // Reproduce slow movement with the measured 400 ms report gaps.
+        var sparse = HingeMotion()
+        sparse.receive(angle: 85, at: 0)
+        var previousSparse = 85.0
+        for frame in 1...240 {
+            let time = Double(frame) / 120
+            let before = sparse.value(at: time)!
+            if frame % 48 == 0 {
+                sparse.receive(angle: 85 - Double(frame / 48) * 4, at: time)
+                precondition(abs(sparse.value(at: time)! - before) < 1e-9)
+            }
+            let current = sparse.value(at: time)!
+            precondition(current <= previousSparse + 1e-9)
+            if frame > 60 { precondition(previousSparse - current > 0.00001) }
+            precondition(previousSparse - current < 0.5)
+            previousSparse = current
+        }
+        precondition(abs(sparse.value(at: 5)! - 65) < 0.01)
+        print("Motion continuity, sparse reports, reversal, settling, and frame-rate checks passed.")
         precondition(HingePolicy.closeProgress(angle: 90) == 0)
         precondition(HingePolicy.closeProgress(angle: 135) == 0)
         precondition(HingePolicy.closeProgress(angle: 0) == 1)

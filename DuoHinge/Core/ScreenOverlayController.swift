@@ -47,6 +47,8 @@ final class ScreenOverlayController {
     }
     @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private var renderer: HingeMetalRenderer?
+    @ObservationIgnored private(set) var isAnimating = false
+    @ObservationIgnored private var returnStarted: Double?
 
     static var builtInScreen: NSScreen? {
         NSScreen.screens.first {
@@ -76,29 +78,43 @@ final class ScreenOverlayController {
 
     func update(angle: Double, sampleTime: Double, thresholdAngle: Double, screenCapture: ScreenCaptureService) {
         let closeProgress = HingePolicy.closeProgress(angle: angle, thresholdAngle: thresholdAngle)
-        guard closeProgress > 0.0001 else {
+        guard screenCapture.hasFrame,
+            let panel = makePanelIfNeeded(screenCapture: screenCapture), let renderer
+        else {
             hide()
             return
         }
-
-        guard screenCapture.hasFrame else { return }
-        renderer?.progress = Float(closeProgress)
-        renderer?.thresholdAngle = thresholdAngle
-        renderer?.receive(angle: angle, at: sampleTime)
-        renderer?.style = style
-        renderer?.viewpoint = viewpoint
-        renderer?.view.isPaused = false
-
-        guard let panel = makePanelIfNeeded(screenCapture: screenCapture) else {
-            hide()
-            return
+        renderer.thresholdAngle = thresholdAngle
+        if !isAnimating {
+            guard closeProgress > 0.0001 else { return }
+            renderer.beginMotion(angle: angle)
+            isAnimating = true
+        } else {
+            renderer.receive(angle: angle, at: sampleTime)
         }
+        if closeProgress <= 0.0001 {
+            let now = ProcessInfo.processInfo.systemUptime
+            if returnStarted == nil { returnStarted = now }
+            // Keep capture alive until the rendered geometry reaches neutral.
+            // A bounded timeout still removes the overlay if rendering stalls.
+            if renderer.progress <= 0.0001 || now - (returnStarted ?? now) > 1.5 {
+                hide()
+                return
+            }
+        } else {
+            returnStarted = nil
+        }
+        renderer.style = style
+        renderer.viewpoint = viewpoint
+        renderer.view.isPaused = false
         if !panel.isVisible {
             panel.orderFrontRegardless()
         }
     }
 
     func hide() {
+        isAnimating = false
+        returnStarted = nil
         panel?.orderOut(nil)
         renderer?.view.isPaused = true
         renderer?.resetMotion()

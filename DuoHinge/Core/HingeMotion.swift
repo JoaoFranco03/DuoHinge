@@ -1,46 +1,55 @@
 import Foundation
 
-/// Presentation-only interpolation. Raw sensor angles still control capture and visibility.
-/// Keeping a short history lets display frames interpolate between consecutive real
-/// lid reports rather than showing each roughly 10 Hz report as a discrete step.
+/// Display-paced critically damped motion; no extrapolated angle or fixed buffer.
+/// Sparse HID reports update the target without jumping the displayed position.
 struct HingeMotion {
-    private struct Sample {
-        let angle: Double
-        let time: Double
-    }
-
-    // The tested sensor usually reports every 100–120 ms. This delay keeps one
-    // complete segment available for interpolation while remaining responsive.
-    private static let presentationDelay = 0.120
-    private var samples: [Sample] = []
+    private var target: Double?
+    private var sampleTime = 0.0
+    private var frameTime = 0.0
+    private var position = 0.0
+    private var velocity = 0.0
+    private var cadence = 0.1
 
     mutating func receive(angle next: Double, at time: Double) {
         guard next.isFinite, time.isFinite, (0...360).contains(next) else { return }
-        if let latest = samples.last {
-            guard time > latest.time else { return }
+        if target != nil {
+            guard time > sampleTime else { return }
+            // Integrate the old target first; a report must not rewrite elapsed motion.
+            _ = value(at: time)
+            let interval = time - sampleTime
+            if interval <= 0.6 {
+                cadence = max(0.1, min(interval, 0.4))
+            }
+        } else {
+            position = next
+            frameTime = time
         }
-        samples.append(Sample(angle: next, time: time))
-        // A few samples cover the presentation delay and a delayed report without
-        // allowing this small history to grow indefinitely.
-        if samples.count > 6 { samples.removeFirst(samples.count - 6) }
+        target = next
+        sampleTime = time
     }
 
     mutating func value(at time: Double) -> Double? {
-        guard time.isFinite, let first = samples.first, let latest = samples.last else { return nil }
-        let presentationTime = time - Self.presentationDelay
-        guard samples.count > 1, presentationTime > first.time else { return first.angle }
-        guard presentationTime < latest.time else { return latest.angle }
-
-        for index in 1..<samples.count {
-            let left = samples[index - 1]
-            let right = samples[index]
-            guard presentationTime <= right.time else { continue }
-            let interval = right.time - left.time
-            guard interval > 0 else { return right.angle }
-            let fraction = min(max((presentationTime - left.time) / interval, 0), 1)
-            return left.angle + (right.angle - left.angle) * fraction
+        guard let target, time.isFinite else { return nil }
+        guard time > frameTime else { return position }
+        let dt = time - frameTime
+        frameTime = time
+        // Broaden the response for 200–400 ms reports instead of exhausting a
+        // 120 ms segment and holding still. This intentionally trades latency
+        // for continuity; the hardware cannot supply the missing real angles.
+        let omega = min(20.0, 3.0 / cadence)
+        let error = position - target
+        let coefficient = velocity + omega * error
+        let decay = exp(-omega * dt)
+        let next = target + (error + coefficient * dt) * decay
+        velocity = (velocity - omega * coefficient * dt) * decay
+        // Prevent momentum from crossing the target after an abrupt reversal.
+        if (position - target) * (next - target) < 0 {
+            position = target
+            velocity = 0
+        } else {
+            position = min(max(next, 0), 360)
         }
-        return latest.angle
+        return position
     }
 
     mutating func reset() { self = HingeMotion() }

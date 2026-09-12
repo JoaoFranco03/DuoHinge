@@ -53,7 +53,7 @@ Desktop processing runs on-device and requests the built-in display’s refresh 
   <tr>
     <td width="50%" valign="top">
       <h3>📐 Display-Paced Sensor Motion</h3>
-      <p>Reads the <code>AppleSPUHIDDriver</code> lid angle sensor and interpolates real readings at render cadence. A 120 ms presentation buffer removes visible sensor steps while preserving the physical motion. The tested M2 Pro delivers roughly 10 readings per second during movement.</p>
+      <p>Reads the <code>AppleSPUHIDDriver</code> lid angle sensor and smooths motion at render cadence. A damped response adapts to irregular readings, trading some visual lag for continuity. The tested M2 Pro reports around 10 times per second during faster movement, with 200–400 ms gaps observed during slow movement.</p>
     </td>
     <td width="50%" valign="top">
       <h3>💻 Dynamic Live Menu Bar Icon</h3>
@@ -103,6 +103,13 @@ Adjust the raycast eye-point relative to how you use your MacBook:
 - **`Desk`** *(Default)*: Optimized for looking down at your laptop keyboard from an elevated seated angle.
 - **`Front`**: Straight-on eye-level perspective for elevated laptop stands or external mounts.
 
+### 3. Return When Idle
+
+Enable **Return When Idle** in the menu to smoothly restore the normal desktop
+after one second without a hinge-angle change. Moving the hinge resumes the
+effect. This option defaults to off and remembers your choice. Idle refers to
+the hinge, not keyboard or mouse activity.
+
 <br />
 
 ---
@@ -126,8 +133,9 @@ At launch, DuoHinge looks for the exact HID device described above. If it is not
 available, the app reports that the hinge sensor is unavailable and keeps the
 effect inactive. It does not maintain a model whitelist, and the app should not
 be advertised as supporting a model until it has been tested on that model. The
-M2 Pro sensor measured roughly 10 reports per second while the lid was moving;
-display refresh rate does not increase sensor report rate.
+M2 Pro sensor measured roughly 10 reports per second during faster movement,
+with 200–400 ms gaps during slow movement. Display refresh rate does not increase
+sensor report rate; smoothing trades visual lag for continuity.
 
 ### Display &amp; Setup Behavior
 - **Built-in Display Only**: DuoHinge targets the internal MacBook display (`CGDisplayIsBuiltin`). External monitors remain completely standard and are never captured or obscured.
@@ -164,7 +172,7 @@ DuoHinge/
 ├── Core/
 │   ├── HingeRuntime.swift             # 100 Hz runtime timer, state coordination & pre-warming
 │   ├── HingePolicy.swift              # Pure geometric policy
-│   ├── HingeMotion.swift              # Bounded prediction and display-paced filtering
+│   ├── HingeMotion.swift              # Display-paced damped motion
 │   ├── HingeMetalRenderer.swift        # Direct pixel-buffer Metal rendering
 │   ├── CapturedSurface.swift           # GPU surface ownership
 │   ├── HingeViewpoint.swift           # Eye-point coordinates (Desk vs Front)
@@ -186,7 +194,7 @@ DuoHinge/
 ## 🔒 Privacy & Local Processing
 
 - **Local processing**: The app does not save or upload desktop frames. ScreenCaptureKit pixel buffers are mapped into Metal textures. The Support link opens an external website only when selected.
-- **Reduced idle work**: Capture and rendering stop outside the pre-warm range. Sensor monitoring, the runtime timer, and permission checks remain active.
+- **Reduced idle work**: Capture and rendering stop after the overlay returns to neutral outside the pre-warm range, or when Return When Idle completes. Sensor monitoring, the runtime timer, and permission checks remain active.
 - **Safe Window Exclusion**: The overlay window automatically excludes itself from capture to prevent infinite reflection loops.
 
 <br />
@@ -195,7 +203,7 @@ DuoHinge/
 
 ## Limitations and troubleshooting
 
-- Front and Desk assume a fixed eye position; there is no eye tracking. Prediction trades a small amount of angle accuracy for continuity.
+- Front and Desk assume a fixed eye position; there is no eye tracking. Smoothing introduces visual lag, especially with sparse sensor readings.
 - Disable the effect or quit from the menu to remove the overlay. If unresponsive, quit DuoHinge through Activity Monitor.
 - Grant Screen Recording in System Settings → Privacy & Security. The app rechecks access; a relaunch may still be necessary for some signed copies. Do not reset system permissions as a first troubleshooting step.
 - Public downloads should be Developer ID signed, notarized, and stapled. An unsigned local test build is not a distributable release.

@@ -8,6 +8,15 @@ final class HingeRuntime {
     let capture = ScreenCaptureService()
     var overlay = ScreenOverlayController()
     var permissions = PermissionManager()
+    var returnWhenIdle = UserDefaults.standard.bool(forKey: "returnWhenIdle") {
+        didSet {
+            UserDefaults.standard.set(returnWhenIdle, forKey: "returnWhenIdle")
+            refresh()
+        }
+    }
+    @ObservationIgnored private var idlePolicy = HingeIdlePolicy()
+    @ObservationIgnored private var presentationAngle: Double?
+    @ObservationIgnored private var presentationSampleTime = 0.0
 
     var isEnabled = true {
         didSet {
@@ -91,6 +100,14 @@ final class HingeRuntime {
 
     func refresh() {
         guard timer != nil else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let idle = idlePolicy.isIdle(angle: angle, at: now)
+        let returningForIdle = returnWhenIdle && idle
+        let effectAngle = returningForIdle ? triggerAngle : angle
+        if presentationAngle != effectAngle {
+            presentationAngle = effectAngle
+            presentationSampleTime = now
+        }
         updateMenuBarIconIfNeeded()
         let granted = permissions.hasScreenRecordingPermission
         if lastPermission != granted {
@@ -100,7 +117,9 @@ final class HingeRuntime {
         }
         let shouldPrewarm =
             granted && isEnabled && ScreenOverlayController.builtInScreen != nil
-            && HingePolicy.shouldPrewarmCapture(angle: angle, thresholdAngle: triggerAngle, prewarmMargin: 3.0)
+            && (overlay.isAnimating
+                || (!returningForIdle
+                    && HingePolicy.shouldPrewarmCapture(angle: angle, thresholdAngle: triggerAngle, prewarmMargin: 3.0)))
         guard shouldPrewarm else {
             if startup != nil || capture.isRunning || lastProgress != nil || recovery.attempts > 0 {
                 stopCaptureAndOverlay()
@@ -116,12 +135,12 @@ final class HingeRuntime {
             }
         }
 
-        let target = HingePolicy.closeProgress(angle: angle, thresholdAngle: triggerAngle)
-        if target > 0.0001, capture.hasFrame {
+        let target = HingePolicy.closeProgress(angle: effectAngle, thresholdAngle: triggerAngle)
+        if target > 0.0001 || overlay.isAnimating, capture.hasFrame {
             lastProgress = target
             overlay.update(
-                angle: angle,
-                sampleTime: sensor.sampleTime,
+                angle: effectAngle,
+                sampleTime: presentationSampleTime,
                 thresholdAngle: triggerAngle,
                 screenCapture: capture)
         } else if lastProgress != nil {

@@ -21,6 +21,7 @@ struct ContentView: View {
         }
 
         Toggle("Enable Hinge Effect", isOn: $runtime.isEnabled)
+        Toggle("Return When Idle", isOn: $runtime.returnWhenIdle)
         Menu("Appearance") {
             Picker(
                 "Appearance",

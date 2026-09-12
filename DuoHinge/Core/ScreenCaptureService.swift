@@ -52,7 +52,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate {
         captureTask = nil
         if !success {
             stream = nil
-            latestFrame.replace(with: nil)
+            latestFrame.activate(nil)
         }
         return success
     }
@@ -63,7 +63,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate {
         captureTask = nil
         let capture = stream
         stream = nil
-        latestFrame.replace(with: nil)
+        latestFrame.activate(nil)
         displayID = nil
         errorMessage = nil
         Task { try? await capture?.stopCapture() }
@@ -109,7 +109,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             guard let overlayWindow = content.windows.first(where: { $0.windowID == overlayWindowID }) else {
                 errorMessage = "Capture could not locate its overlay window. Quit and reopen Duo Hinge."
-                latestFrame.replace(with: nil)
+                latestFrame.activate(nil)
                 return false
             }
             // No exceptions: a captured overlay compounds even a 1-degree warp
@@ -140,6 +140,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate {
             try Task.checkCancellation()
             try capture.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
             stream = capture
+            latestFrame.activate(capture)
             try await capture.startCapture()
             if Task.isCancelled || sessionID != token {
                 try? await capture.stopCapture()
@@ -165,13 +166,13 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate {
             let status = attachments.first?[.status] as? Int,
             status == SCFrameStatus.complete.rawValue
         else { return }
-        latestFrame.replace(with: buffer)
+        latestFrame.replace(with: buffer, from: stream)
     }
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
         Task { @MainActor in
             guard self.stream === stream else { return }
             self.errorMessage = error.localizedDescription
-            self.latestFrame.replace(with: nil)
+            self.latestFrame.activate(nil)
             self.stream = nil
             self.sessionID = UUID()
             self.captureTask?.cancel()

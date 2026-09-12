@@ -18,3 +18,18 @@ enum HingePolicy {
     }
 
 }
+/// Hinge inactivity, not keyboard or mouse inactivity. Identical HID reports
+/// do not keep the effect awake; any changed angle resumes it.
+struct HingeIdlePolicy {
+    private var lastAngle: Double?
+    private var lastMovement = 0.0
+
+    mutating func isIdle(angle: Double, at time: Double) -> Bool {
+        guard angle.isFinite, time.isFinite else { return false }
+        if lastAngle != angle {
+            lastAngle = angle
+            lastMovement = time
+        }
+        return time - lastMovement >= 1.0
+    }
+}

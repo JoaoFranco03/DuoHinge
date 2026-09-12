@@ -11,7 +11,6 @@ final class HingeMetalRenderer: NSObject, MTKViewDelegate {
     var viewpoint: HingeViewpoint = .desk
     var thresholdAngle = 90.0
     private var motion = HingeMotion()
-
     func receive(angle: Double, at time: Double) {
         motion.receive(angle: angle, at: time)
     }
@@ -20,13 +19,22 @@ final class HingeMetalRenderer: NSObject, MTKViewDelegate {
         motion.reset()
         progress = 0
     }
+
+    func beginMotion(angle: Double) {
+        let now = ProcessInfo.processInfo.systemUptime
+        motion.reset()
+        motion.receive(angle: thresholdAngle, at: now - 0.001)
+        motion.receive(angle: angle, at: now)
+        progress = 0
+    }
     private let capture: ScreenCaptureService
     private let queue: MTLCommandQueue
     private var cache: CVMetalTextureCache
     private var pipelines: [MTLRenderPipelineState] = []
     private var targets: [MTLTexture] = []
-    // One GPU frame at a time: skip work instead of queuing old hinge positions.
-    private let frameSlot = DispatchSemaphore(value: 1)
+    // Two bounded submissions allow encoding to overlap GPU work. All passes
+    // use the same serial command queue, so shared targets remain ordered.
+    private let frameSlot = DispatchSemaphore(value: 2)
 
     init(capture: ScreenCaptureService) throws {
         guard let device = MTLCreateSystemDefaultDevice(),

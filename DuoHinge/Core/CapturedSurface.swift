@@ -20,11 +20,20 @@ nonisolated final class CapturedSurface: @unchecked Sendable {
 nonisolated final class LatestCapturedFrame: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer: CVPixelBuffer?
+    private var source: ObjectIdentifier?
 
-    func replace(with next: CVPixelBuffer?) {
+    func activate(_ owner: AnyObject?) {
         lock.lock()
-        buffer = next
+        source = owner.map { ObjectIdentifier($0) }
+        buffer = nil
         lock.unlock()
+    }
+
+    func replace(with next: CVPixelBuffer, from owner: AnyObject) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard source == ObjectIdentifier(owner) else { return }
+        buffer = next
     }
 
     func snapshot() -> CVPixelBuffer? {
